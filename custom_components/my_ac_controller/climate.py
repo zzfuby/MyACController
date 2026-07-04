@@ -150,7 +150,7 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
         self._t_ac: float | None = None       # AC internal sensor reading
         self._hvac_mode: HVACMode = HVACMode.OFF
         self._hvac_action: HVACAction = HVACAction.OFF
-        self._control_state: str = "off"      # off / low / high / on
+        self._control_state: str = "off"      # fan / low / high / off / on
 
         # --- Entity metadata ---
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}"
@@ -380,16 +380,30 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
         if self._hvac_mode == HVACMode.OFF:
             self._hvac_action = HVACAction.OFF
             self._control_state = "off"
+            _LOGGER.info(
+                "%s: ▶ Control cycle — HVAC=OFF, skipping", self._name
+            )
             await self.async_update_ha_state()
             return
 
         if self._diff_actual is None:
-            _LOGGER.debug(
-                "%s: Diff_actual unavailable — skipping control cycle",
-                self._name,
+            _LOGGER.info(
+                "%s: ▶ Control cycle — Diff_actual=None (T_trust=%s, T_target=%s), skipping",
+                self._name, self._t_trust, self._t_target,
             )
             await self.async_update_ha_state()
             return
+
+        _LOGGER.info(
+            "%s: ▶ Control cycle — mode=%s, T_trust=%.1f, T_ac=%s, "
+            "T_target=%.1f, Diff_actual=%.2f, hvac_mode=%s",
+            self._name, self._mode,
+            self._t_trust if self._t_trust is not None else float('nan'),
+            f"{self._t_ac:.1f}" if self._t_ac is not None else "N/A",
+            self._t_target,
+            self._diff_actual,
+            self._hvac_mode,
+        )
 
         if self._mode == MODE_BP:
             await self._control_inverter()
@@ -410,10 +424,11 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
         Zone map (based on |Diff_actual|):
 
             0 ──── Diff_off ──── Diff_low ──── ∞
-            OFF      LOW           HIGH
+            FAN      LOW           HIGH
 
-        - OFF:  temperature is close enough to target; turn off to
-                prevent overshooting.
+        - FAN:  temperature is close enough to target; switch to
+                fan-only mode (compressor stops, air still circulates)
+                to prevent overshooting without fully powering off.
         - LOW:  temperature is near target; run the AC at minimum
                 inverter frequency for gentle fine-tuning.
         - HIGH: temperature is far from target; run at full capacity.
@@ -423,28 +438,28 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
         abs_diff = round(abs(self._diff_actual), 2)
 
         if abs_diff <= self._diff_off:
-            await self._async_turn_off_ac()
-            self._control_state = "off"
-            self._hvac_action = HVACAction.IDLE
-            _LOGGER.debug(
-                "%s: BP → OFF  (|Diff|=%.2f ≤ Diff_off=%.2f)",
+            await self._async_set_ac_fan_mode()
+            self._control_state = "fan"
+            self._hvac_action = HVACAction.FAN
+            _LOGGER.info(
+                "%s: BP → FAN  (|Diff|=%.2f ≤ Diff_off=%.2f) → set_hvac_mode=fan_only",
                 self._name, abs_diff, self._diff_off,
             )
 
         elif abs_diff <= self._diff_low:
             self._control_state = "low"
             await self._set_ac_low_power()
-            _LOGGER.debug(
-                "%s: BP → LOW  (Diff_off<|Diff|=%.2f ≤ Diff_low=%.2f)",
-                self._name, abs_diff, self._diff_low,
+            _LOGGER.info(
+                "%s: BP → LOW  (Diff_off=%.2f < |Diff|=%.2f ≤ Diff_low=%.2f)",
+                self._name, self._diff_off, abs_diff, self._diff_low,
             )
 
         else:
             self._control_state = "high"
             await self._set_ac_high_power()
-            _LOGGER.debug(
-                "%s: BP → HIGH (|Diff|=%.2f > Diff_low=%.2f)",
-                self._name, abs_diff, self._diff_low,
+            _LOGGER.info(
+                "%s: BP → HIGH (|Diff|=%.2f > Diff_low=%.2f) → target=T_expectation=%.1f",
+                self._name, abs_diff, self._diff_low, self._t_target,
             )
 
     # ------------------------------------------------------------------
@@ -481,8 +496,26 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
         step = self._step
         if self._round_direction == ROUND_UP:
             ac_target = ceil(base_temp / step) * step
+            direction = "ceil"
         else:
             ac_target = floor(base_temp / step) * step
+            direction = "floor"
+
+        _LOGGER.info(
+            "%s: LOW-power → base_temp=%.2f(T_%s), step=%.2f, "
+            "round=%s(%s) → %s(%.2f/%.2f)×%.2f = %.2f",
+            self._name,
+            base_temp,
+            "ac" if self._t_ac is not None else "trust",
+            step,
+            self._round_direction,
+            direction,
+            direction,
+            base_temp,
+            step,
+            step,
+            ac_target,
+        )
 
         await self._async_set_ac_target(ac_target)
         self._update_hvac_action()
@@ -549,17 +582,18 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
             await self._async_set_ac_target(self._t_target)
             self._control_state = "on"
             self._update_hvac_action()
-            _LOGGER.debug(
-                "%s: DP → ON  (|Diff|=%.2f ≥ Diff_on=%.2f)",
+            _LOGGER.info(
+                "%s: DP → ON  (|Diff|=%.2f ≥ Diff_on=%.2f) → target=%.1f, hvac=%s",
                 self._name, abs_diff, self._diff_on,
+                self._t_target, self._hvac_action,
             )
 
         elif is_running and abs_diff <= self._diff_off_dp:
             await self._async_turn_off_ac()
             self._control_state = "off"
             self._hvac_action = HVACAction.IDLE
-            _LOGGER.debug(
-                "%s: DP → OFF (|Diff|=%.2f ≤ Diff_off_dp=%.2f)",
+            _LOGGER.info(
+                "%s: DP → OFF (|Diff|=%.2f ≤ Diff_off_dp=%.2f) → AC turned off",
                 self._name, abs_diff, self._diff_off_dp,
             )
 
@@ -567,13 +601,13 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
             # Hysteresis band — hold current state
             if is_running:
                 self._update_hvac_action()
-            _LOGGER.debug(
-                "%s: DP HOLD — |Diff|=%.2f, state=%s (on=%.2f, off=%.2f)",
+            _LOGGER.info(
+                "%s: DP HOLD — state=%s, |Diff|=%.2f ∈ (%.2f, %.2f) hysteresis band",
                 self._name,
-                abs_diff,
                 self._control_state,
-                self._diff_on,
+                abs_diff,
                 self._diff_off_dp,
+                self._diff_on,
             )
 
     # ==================================================================
@@ -599,6 +633,10 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
 
         # 1. Ensure the AC is in the right HVAC mode
         ac_hvac_mode = self._resolve_ac_hvac_mode()
+        _LOGGER.info(
+            "%s: ▶ set_hvac_mode(%s) + set_temperature(%.1f°C)",
+            self._name, ac_hvac_mode, round(temperature, 1),
+        )
         await self.hass.services.async_call(
             "climate",
             "set_hvac_mode",
@@ -621,13 +659,36 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
         )
 
     async def _async_turn_off_ac(self) -> None:
-        """Turn the physical AC off."""
+        """Turn the physical AC completely off."""
+        _LOGGER.info(
+            "%s: ▶ set_hvac_mode(OFF) — AC powered off", self._name
+        )
         await self.hass.services.async_call(
             "climate",
             "set_hvac_mode",
             {
                 "entity_id": self._climate_entity,
                 "hvac_mode": HVACMode.OFF,
+            },
+            blocking=False,
+        )
+
+    async def _async_set_ac_fan_mode(self) -> None:
+        """Switch the physical AC to fan-only mode.
+
+        The compressor stops (no cooling/heating) but the indoor unit
+        keeps circulating air. This is gentler than fully powering off
+        and allows smooth resumption when the temperature drifts again.
+        """
+        _LOGGER.info(
+            "%s: ▶ set_hvac_mode(FAN_ONLY) — compressor off, fan running", self._name
+        )
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {
+                "entity_id": self._climate_entity,
+                "hvac_mode": HVACMode.FAN_ONLY,
             },
             blocking=False,
         )

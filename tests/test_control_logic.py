@@ -118,6 +118,7 @@ def _setup_mocks():
         "IDLE": "idle",
         "HEATING": "heating",
         "COOLING": "cooling",
+        "FAN": "fan",
     }
 
     class HVACAction(str):
@@ -478,31 +479,31 @@ class TestInverterCooling:
         temp_calls = [c for c in calls if c[0][1] == "set_temperature"]
         assert temp_calls[-1][0][2]["temperature"] == 27.0
 
-    # ---- OFF zone ----
+    # ---- FAN zone ----
 
     @pytest.mark.asyncio
-    async def test_cooling_off_zone_close_to_target(self):
-        """|Diff|=0.2 <= Diff_off=0.3 → OFF."""
+    async def test_cooling_fan_zone_close_to_target(self):
+        """|Diff|=0.2 <= Diff_off=0.3 → FAN (compressor off, fan running)."""
         self.entity._t_trust = 25.2  # Diff = 0.2
         await self.entity._control_inverter()
-        assert self.entity._control_state == "off"
-        assert self.entity._hvac_action == HVACAction.IDLE
+        assert self.entity._control_state == "fan"
+        assert self.entity._hvac_action == HVACAction.FAN
 
     @pytest.mark.asyncio
-    async def test_cooling_off_at_exact_boundary(self):
-        """|Diff|=0.3 == Diff_off → OFF (boundary included)."""
+    async def test_cooling_fan_at_exact_boundary(self):
+        """|Diff|=0.3 == Diff_off → FAN (boundary included)."""
         self.entity._t_trust = 25.3  # Diff = 0.3
         await self.entity._control_inverter()
-        assert self.entity._control_state == "off"
+        assert self.entity._control_state == "fan"
 
     @pytest.mark.asyncio
-    async def test_cooling_off_sends_hvac_off_to_ac(self):
-        """OFF state should call climate.set_hvac_mode with 'off'."""
+    async def test_cooling_fan_sends_fan_only_to_ac(self):
+        """FAN state should call climate.set_hvac_mode with 'fan_only'."""
         self.entity._t_trust = 25.1
         await self.entity._control_inverter()
         calls = self.hass.services.async_call.call_args_list
-        off_calls = [c for c in calls if c[0][1] == "set_hvac_mode" and c[0][2]["hvac_mode"] == "off"]
-        assert len(off_calls) >= 1
+        fan_calls = [c for c in calls if c[0][1] == "set_hvac_mode" and c[0][2]["hvac_mode"] == "fan_only"]
+        assert len(fan_calls) >= 1
 
 
 # ===================================================================
@@ -567,12 +568,12 @@ class TestInverterHeating:
         assert temp_calls[-1][0][2]["temperature"] == 19.0
 
     @pytest.mark.asyncio
-    async def test_heating_off_zone_close_to_target(self):
-        """|Diff|=0.2 → OFF."""
+    async def test_heating_fan_zone_close_to_target(self):
+        """|Diff|=0.2 → FAN (compressor off, fan running)."""
         self.entity._t_trust = 21.8  # Diff = -0.2
         await self.entity._control_inverter()
-        assert self.entity._control_state == "off"
-        assert self.entity._hvac_action == HVACAction.IDLE
+        assert self.entity._control_state == "fan"
+        assert self.entity._hvac_action == HVACAction.FAN
 
 
 # ===================================================================
@@ -896,15 +897,15 @@ class TestZoneTransitions:
         await entity._control_inverter()
         assert entity._control_state == "low"
 
-        # Cooled to 25.3, Diff=0.3 → boundary (<=0.3) → OFF
+        # Cooled to 25.3, Diff=0.3 → boundary (<=0.3) → FAN
         entity._t_trust = 25.3
         await entity._control_inverter()
-        assert entity._control_state == "off"
+        assert entity._control_state == "fan"
 
-        # Cooled to 25.1, Diff=0.1 → OFF
+        # Cooled to 25.1, Diff=0.1 → FAN
         entity._t_trust = 25.1
         await entity._control_inverter()
-        assert entity._control_state == "off"
+        assert entity._control_state == "fan"
 
     @pytest.mark.asyncio
     async def test_heating_low_to_high_transition(self):
@@ -915,10 +916,10 @@ class TestZoneTransitions:
             hvac_mode=HVACMode.HEAT, t_target=22.0,
         )
 
-        # Start at target: OFF
+        # Start at target: FAN
         entity._t_trust = 22.0
         await entity._control_inverter()
-        assert entity._control_state == "off"
+        assert entity._control_state == "fan"
 
         # Drifted to 21.4, Diff=-0.6 → LOW
         entity._t_trust = 21.4
