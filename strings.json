@@ -1,0 +1,107 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "My AC Controller",
+        "description": "Configure your AC controller.\n\nThis integration uses an external temperature sensor to accurately control your air conditioner, compensating for inaccuracies in the AC's built-in sensor.",
+        "data": {
+          "name": "Name",
+          "climate_entity": "AC Climate Entity",
+          "temperature_sensor": "External Temperature Sensor (Trusted)",
+          "mode": "AC Type"
+        }
+      },
+      "bp_settings": {
+        "title": "Inverter Mode Settings",
+        "description": "Configure inverter (variable-frequency) AC thresholds.\n\n**Stop difference (Diff_off):** When the absolute temperature difference is within this value, the AC will be turned off to prevent overshooting.\n\n**Low-power difference (Diff_low):** When the absolute temperature difference is within this value (but above Diff_off), the AC will run in low-power mode for gentle adjustment.\n\n**Step:** Temperature step for rounding the AC target in low-power mode.\n\n**Round direction:** How to round the AC target temperature step.",
+        "data": {
+          "diff_off": "Stop Difference (Diff_off) °C",
+          "diff_low": "Low-Power Difference (Diff_low) °C",
+          "step": "Temperature Step °C",
+          "round_direction": "Round Direction"
+        }
+      },
+      "dp_settings": {
+        "title": "Fixed-Speed Mode Settings",
+        "description": "Configure fixed-speed (on/off) AC thresholds.\n\n**Turn-on difference (Diff_on):** When the absolute temperature difference reaches or exceeds this value, the AC will turn on.\n\n**Turn-off difference (Diff_off):** When the absolute temperature difference drops to or below this value, the AC will turn off.\n\nDiff_on should be greater than Diff_off to create a hysteresis band and prevent short cycling.",
+        "data": {
+          "diff_on": "Turn-On Difference (Diff_on) °C",
+          "diff_off_dp": "Turn-Off Difference (Diff_off) °C"
+        }
+      },
+      "common": {
+        "title": "Common Settings",
+        "description": "Configure general settings for the controller.",
+        "data": {
+          "poll_interval": "Poll Interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "name_required": "Name is required.",
+      "diff_off_greater_than_diff_low": "Stop difference (Diff_off) must be less than or equal to Low-power difference (Diff_low).",
+      "diff_on_less_than_diff_off": "Turn-on difference (Diff_on) must be greater than or equal to Turn-off difference (Diff_off)."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "My AC Controller Options",
+        "description": "What settings would you like to adjust?",
+        "menu_options": {
+          "mode_settings": "Mode Thresholds",
+          "common_settings": "Common Settings"
+        }
+      },
+      "mode_settings": {
+        "title": "Mode Thresholds",
+        "description": "Adjust the temperature thresholds for your AC control mode.",
+        "data": {
+          "diff_off": "Stop Difference (Diff_off) °C",
+          "diff_low": "Low-Power Difference (Diff_low) °C",
+          "step": "Temperature Step °C",
+          "round_direction": "Round Direction",
+          "diff_on": "Turn-On Difference (Diff_on) °C",
+          "diff_off_dp": "Turn-Off Difference (Diff_off) °C"
+        }
+      },
+      "common_settings": {
+        "title": "Common Settings",
+        "description": "Adjust general settings.",
+        "data": {
+          "poll_interval": "Poll Interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "diff_off_greater_than_diff_low": "Stop difference (Diff_off) must be less than or equal to Low-power difference (Diff_low).",
+      "diff_on_less_than_diff_off": "Turn-on difference (Diff_on) must be greater than or equal to Turn-off difference (Diff_off)."
+    }
+  },
+  "entity": {
+    "climate": {
+      "my_ac_controller": {
+        "state_attributes": {
+          "control_state": {
+            "name": "Control State"
+          },
+          "diff_actual": {
+            "name": "Temperature Difference"
+          },
+          "t_ac": {
+            "name": "AC Internal Temperature"
+          },
+          "t_trust": {
+            "name": "Trusted Sensor Temperature"
+          },
+          "t_expectation": {
+            "name": "Expected Temperature"
+          }
+        }
+      }
+    }
+  }
+}
