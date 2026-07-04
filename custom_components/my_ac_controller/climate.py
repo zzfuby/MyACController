@@ -29,6 +29,7 @@ from homeassistant.components.climate import (
     HVACAction,
     HVACMode,
 )
+from homeassistant.components.climate.const import ATTR_HVAC_MODE
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
@@ -83,6 +84,10 @@ async def async_setup_entry(
     """Set up the My AC Controller climate entity from a config entry."""
     entity = MyACControllerClimate(hass, entry)
     async_add_entities([entity])
+    # Store climate entity reference so other platforms (sensor, number, etc.)
+    # can access it via hass.data[DOMAIN][entry.entry_id]["climate"]
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN].setdefault(entry.entry_id, {})["climate"] = entity
 
 
 class MyACControllerClimate(ClimateEntity, RestoreEntity):
@@ -286,27 +291,74 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
     # ------------------------------------------------------------------
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Handle user setting a new target temperature (T_expectation)."""
+        """Handle user setting a new target temperature (T_expectation).
+
+        The HA climate card may also include hvac_mode in the same call
+        when the user switches between cooling and heating modes.
+        """
+        _LOGGER.debug(
+            "%s: async_set_temperature kwargs=%s, current hvac_mode=%s",
+            self._name, kwargs, self._hvac_mode,
+        )
+
+        # 1. Handle HVAC mode change if bundled with temperature
+        if ATTR_HVAC_MODE in kwargs:
+            hvac_mode_val = kwargs[ATTR_HVAC_MODE]
+            if hvac_mode_val in (HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL):
+                self._hvac_mode = HVACMode(hvac_mode_val)
+                _LOGGER.info(
+                    "%s: HVAC mode → %s (via set_temperature)", self._name, hvac_mode_val
+                )
+            elif hvac_mode_val == HVACMode.OFF:
+                self._hvac_mode = HVACMode.OFF
+                await self._async_turn_off_ac()
+                self._hvac_action = HVACAction.OFF
+                self._control_state = "off"
+                await self.async_update_ha_state()
+                return
+
+        # 2. Handle target temperature change
         if ATTR_TEMPERATURE in kwargs:
-            self._t_target = float(kwargs[ATTR_TEMPERATURE])
-            _LOGGER.debug(
+            new_target = float(kwargs[ATTR_TEMPERATURE])
+            # Clamp to valid range
+            new_target = min(self.max_temp, max(self.min_temp, new_target))
+            self._t_target = new_target
+            _LOGGER.info(
                 "%s: T_expectation set to %.1f °C", self._name, self._t_target
             )
-            # React immediately rather than waiting for the next poll
-            await self._async_control_cycle(now=None)
+
+        # 3. React immediately rather than waiting for the next poll
+        await self._async_control_cycle(now=None)
         await self.async_update_ha_state()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Handle user changing the HVAC mode."""
-        self._hvac_mode = hvac_mode
-        _LOGGER.debug("%s: HVAC mode → %s", self._name, hvac_mode)
+        """Handle user changing the HVAC mode.
 
-        if hvac_mode == HVACMode.OFF:
+        Accepts HEAT, COOL, HEAT_COOL and OFF. HEAT_COOL enables automatic
+        heating/cooling selection based on the sign of Diff_actual.
+        """
+        _LOGGER.info(
+            "%s: async_set_hvac_mode → %s (was %s)",
+            self._name, hvac_mode, self._hvac_mode,
+        )
+
+        if hvac_mode in (HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL):
+            self._hvac_mode = hvac_mode
+            self.async_write_ha_state()
+            await self._async_control_cycle(now=None)
+
+        elif hvac_mode == HVACMode.OFF:
+            self._hvac_mode = HVACMode.OFF
+            self.async_write_ha_state()
             await self._async_turn_off_ac()
             self._hvac_action = HVACAction.OFF
             self._control_state = "off"
+
         else:
-            await self._async_control_cycle(now=None)
+            _LOGGER.error(
+                "%s: Unsupported hvac_mode %s", self._name, hvac_mode
+            )
+            return
 
         await self.async_update_ha_state()
 

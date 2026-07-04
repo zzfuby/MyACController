@@ -82,6 +82,7 @@ def _setup_mocks():
         (),
         {
             "async_update_ha_state": AsyncMock(),
+            "async_write_ha_state": MagicMock(),
             "hass": None,
         },
     )
@@ -93,6 +94,7 @@ def _setup_mocks():
     ha.components.climate.const = types.ModuleType(
         "homeassistant.components.climate.const"
     )
+    ha.components.climate.const.ATTR_HVAC_MODE = "hvac_mode"
 
     # HVACMode enum
     _hvac_modes = {
