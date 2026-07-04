@@ -418,7 +418,9 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
                 inverter frequency for gentle fine-tuning.
         - HIGH: temperature is far from target; run at full capacity.
         """
-        abs_diff = abs(self._diff_actual)
+        # Round to 2 decimal places to avoid floating-point artifacts
+        # (e.g. 25.3 - 25.0 = 0.3000000000000007 instead of 0.3)
+        abs_diff = round(abs(self._diff_actual), 2)
 
         if abs_diff <= self._diff_off:
             await self._async_turn_off_ac()
@@ -539,7 +541,8 @@ class MyACControllerClimate(ClimateEntity, RestoreEntity):
         The band between Diff_off_dp and Diff_on provides hysteresis
         that prevents short-cycling.
         """
-        abs_diff = abs(self._diff_actual)
+        # Round to 2 decimal places to avoid floating-point artifacts
+        abs_diff = round(abs(self._diff_actual), 2)
         is_running = self._control_state in ("on", "high")
 
         if not is_running and abs_diff >= self._diff_on:

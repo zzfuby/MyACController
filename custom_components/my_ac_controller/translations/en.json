@@ -4,24 +4,24 @@
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
     },
     "error": {
-      "name_required": "Name is required.",
-      "diff_off_greater_than_diff_low": "Stop difference (Diff_off) must be less than or equal to Low-power difference (Diff_low).",
-      "diff_on_less_than_diff_off": "Turn-on difference (Diff_on) must be greater than or equal to Turn-off difference (Diff_off)."
+      "name_required": "Please enter a name for the controller.",
+      "diff_off_greater_than_diff_low": "Stop difference must be ≤ Low-power difference. Otherwise the OFF zone would overlap with the LOW zone.",
+      "diff_on_less_than_diff_off": "Turn-on difference must be ≥ Turn-off difference. Otherwise the hysteresis band would be inverted."
     },
     "step": {
       "user": {
-        "title": "My AC Controller",
-        "description": "Configure your AC controller.\n\nThis integration uses an external temperature sensor to accurately control your air conditioner, compensating for inaccuracies in the AC's built-in sensor.",
+        "title": "My AC Controller — Basic Setup",
+        "description": "## Welcome to My AC Controller\n\nThis integration solves a common problem: **air conditioner built-in sensors are often inaccurate** due to installation position (near ceiling, behind curtains, etc.).\n\n### How it works\n1. You provide an **external temperature sensor** placed at a representative location in the room — this becomes the **trusted temperature (T_trust)**.\n2. The integration reads the **AC's internal sensor (T_ac)** for reference.\n3. It compares T_trust against your **desired temperature (T_expectation)** and controls the AC accordingly.\n\n### Settings on this page\n\n- **Name** — A friendly name, e.g. \"Living Room AC Controller\"\n- **AC Climate Entity** — The existing climate entity that controls your air conditioner\n- **External Temperature Sensor** — A temperature sensor entity placed where you want accurate readings (Zigbee/ZWave/WiFi sensor, or an input_number)\n- **AC Type** — see below\n\n### AC Type: which one should I choose?\n\n| Type | Best for |\n|------|----------|\n| **Inverter** | Modern ACs that vary compressor speed. 3-zone control with low-power mode for precise temperature maintenance. |\n| **Fixed-speed** | Older ACs that are either fully ON or OFF. Hysteresis control to prevent short-cycling. |\n\n> 💡 If your AC remote has 0.5°C temperature steps and runs quietly sometimes, it is likely an inverter AC.",
         "data": {
-          "name": "Name",
+          "name": "Controller Name",
           "climate_entity": "AC Climate Entity",
           "temperature_sensor": "External Temperature Sensor (Trusted)",
           "mode": "AC Type"
         }
       },
       "bp_settings": {
-        "title": "Inverter Mode Settings",
-        "description": "Configure inverter (variable-frequency) AC thresholds.\n\n**Stop difference (Diff_off):** When the absolute temperature difference is within this value, the AC will be turned off to prevent overshooting.\n\n**Low-power difference (Diff_low):** When the absolute temperature difference is within this value (but above Diff_off), the AC will run in low-power mode for gentle adjustment.\n\n**Step:** Temperature step for rounding the AC target in low-power mode.\n\n**Round direction:** How to round the AC target temperature step.",
+        "title": "Inverter Mode — Threshold Settings",
+        "description": "## Inverter AC: 3-Zone Control\n\nYour AC will operate in one of three zones depending on how far the room temperature is from your target:\n\n|Diff|: `0 ── Diff_off ── Diff_low ── ∞`\nZone:  `OFF     LOW        HIGH`\n\n### Zone behavior\n\n| Zone | Condition | What happens |\n|------|-----------|--------------|\n| **OFF** | Room temp within `Diff_off` of target | AC turns off to prevent overshooting. The room is comfortable. |\n| **LOW** | Room temp between `Diff_off` and `Diff_low` | AC runs at minimum inverter frequency. Target is set close to current room temp for gentle fine-tuning. |\n| **HIGH** | Room temp more than `Diff_low` away | AC runs at full capacity. Target = your desired temperature. |\n\n### Example (Cooling, target 25°C, Diff_off=0.3, Diff_low=1.0)\n\n| Room Temp | \\|Diff\\| | Zone | Behavior |\n|-----------|--------|------|----------|\n| 28.0°C | 3.0 | HIGH | Full power → target 25°C |\n| 25.8°C | 0.8 | LOW | Gentle cooling, target ≈ current temp |\n| 25.2°C | 0.2 | OFF | AC turned off |\n\n---\n\n### Settings\n\n- **Stop Difference (Diff_off)** — When temperature is this close to target, turn off. *Must be ≤ Diff_low.*\n- **Low-Power Difference (Diff_low)** — When temperature is closer than this (but > Diff_off), use low power.\n- **Temperature Step** — AC target rounding step in low-power mode. Match your AC's supported increments (usually 0.5 or 1.0°C).\n- **Round Direction** — In low power: **Up** = gentler, **Down** = slightly more aggressive.\n\n> 💡 **Tuning tips:** If temperature oscillates, increase `Diff_low`. If AC turns off too soon, decrease `Diff_off`.",
         "data": {
           "diff_off": "Stop Difference (Diff_off) °C",
           "diff_low": "Low-Power Difference (Diff_low) °C",
@@ -30,8 +30,8 @@
         }
       },
       "dp_settings": {
-        "title": "Fixed-Speed Mode Settings",
-        "description": "Configure fixed-speed (on/off) AC thresholds.\n\n**Turn-on difference (Diff_on):** When the absolute temperature difference reaches or exceeds this value, the AC will turn on.\n\n**Turn-off difference (Diff_off):** When the absolute temperature difference drops to or below this value, the AC will turn off.\n\nDiff_on should be greater than Diff_off to create a hysteresis band and prevent short cycling.",
+        "title": "Fixed-Speed Mode — Threshold Settings",
+        "description": "## Fixed-Speed AC: Hysteresis Control\n\nFixed-speed ACs are either fully ON or fully OFF. Hysteresis prevents rapid cycling that can damage the compressor:\n\n- When |Diff| reaches `Diff_on` → AC turns **ON**\n- When |Diff| drops to `Diff_off` → AC turns **OFF**\n- Between `Diff_off` and `Diff_on` → stays in current state (hysteresis band)\n\n### Example (Cooling, target 25°C, Diff_on=1.0, Diff_off=0.3)\n\n| Time | Room | \\|Diff\\| | State | Action |\n|------|------|--------|-------|--------|\n| Morning | 28.0°C | 3.0 | OFF | → **ON** (\\|Diff\\| ≥ 1.0) |\n| Midday | 25.5°C | 0.5 | ON | hold (in band) |\n| Afternoon | 25.2°C | 0.2 | ON | → **OFF** (\\|Diff\\| ≤ 0.3) |\n| Evening | 25.8°C | 0.8 | OFF | hold (in band) |\n| Night | 26.3°C | 1.3 | OFF | → **ON** again |\n\n---\n\n### Settings\n\n- **Turn-On Difference (Diff_on)** — When temperature deviates this far, turn AC on. *Must be ≥ Diff_off.*\n- **Turn-Off Difference (Diff_off)** — When temperature is this close to target, turn AC off.\n\n> 💡 **Tuning tips:** Keep `Diff_on` > `Diff_off` by at least 0.5°C for a healthy hysteresis band. Larger `Diff_on` = longer cycles, less frequent starts.",
         "data": {
           "diff_on": "Turn-On Difference (Diff_on) °C",
           "diff_off_dp": "Turn-Off Difference (Diff_off) °C"
@@ -39,7 +39,7 @@
       },
       "common": {
         "title": "Common Settings",
-        "description": "Configure general settings for the controller.",
+        "description": "## General Settings\n\n### Poll Interval\n\nHow often (in seconds) the controller checks temperatures and adjusts the AC.\n\n- **10–15s** — Most responsive. For rooms with fast temperature changes.\n- **30s** *(default)* — Balanced. Works well for most rooms.\n- **60–120s** — Larger rooms with slow temperature changes.\n- **180–300s** — Minimal overhead. Very stable environments only.\n\n> 💡 The controller also reacts immediately when you change the target temperature or HVAC mode — the poll interval is only the background check frequency.",
         "data": {
           "poll_interval": "Poll Interval (seconds)"
         }
@@ -48,13 +48,13 @@
   },
   "options": {
     "error": {
-      "diff_off_greater_than_diff_low": "Stop difference (Diff_off) must be less than or equal to Low-power difference (Diff_low).",
-      "diff_on_less_than_diff_off": "Turn-on difference (Diff_on) must be greater than or equal to Turn-off difference (Diff_off)."
+      "diff_off_greater_than_diff_low": "Stop difference must be ≤ Low-power difference.",
+      "diff_on_less_than_diff_off": "Turn-on difference must be ≥ Turn-off difference."
     },
     "step": {
       "init": {
-        "title": "My AC Controller Options",
-        "description": "What settings would you like to adjust?",
+        "title": "My AC Controller — Options",
+        "description": "Which settings would you like to adjust?\n\n- **Mode Thresholds** — Temperature difference thresholds that control AC behavior.\n- **Common Settings** — Poll interval.",
         "menu_options": {
           "mode_settings": "Mode Thresholds",
           "common_settings": "Common Settings"
@@ -62,7 +62,7 @@
       },
       "mode_settings": {
         "title": "Mode Thresholds",
-        "description": "Adjust the temperature thresholds for your AC control mode.",
+        "description": "Adjust the temperature thresholds that control your AC. See the setup wizard descriptions for detailed guidance on each field.",
         "data": {
           "diff_off": "Stop Difference (Diff_off) °C",
           "diff_low": "Low-Power Difference (Diff_low) °C",
@@ -74,7 +74,7 @@
       },
       "common_settings": {
         "title": "Common Settings",
-        "description": "Adjust general settings.",
+        "description": "### Poll Interval\n\nHow often (seconds) the controller checks temperatures.\n\n- **10–30s** — Responsive, for fast-changing rooms.\n- **30–60s** — Balanced (default: 30s).\n- **60–300s** — For stable environments.",
         "data": {
           "poll_interval": "Poll Interval (seconds)"
         }
